@@ -566,6 +566,11 @@ describe("timeline predicates", () => {
     expect(isAgentAttributedToolActivity(activity("tool.completed", { agentId: "  " }))).toBe(
       false,
     );
+    expect(
+      isAgentAttributedToolActivity(
+        activity("tool.completed", { parentToolUseId: "workflow-member-parent" }),
+      ),
+    ).toBe(true);
   });
 
   it("timelineBypass rows never render in the parent chat", () => {

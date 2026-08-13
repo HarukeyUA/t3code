@@ -2103,6 +2103,21 @@ describe("deriveWorkLogEntries quiet-timeline guarantee", () => {
     expect(entries.some((entry) => entry.sourceActivityKind?.startsWith("tool."))).toBe(false);
   });
 
+  it("hides Claude workflow tools that only carry a parent tool id", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        kind: "tool.completed",
+        summary: "Run workflow member tests",
+        payload: {
+          itemType: "command_execution",
+          parentToolUseId: "workflow-member-parent",
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(0);
+  });
+
   it("a workflow run and its members collapse into one CTA row keyed to the coordinator", () => {
     const entries = deriveWorkLogEntries([
       makeActivity({
