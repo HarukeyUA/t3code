@@ -1428,6 +1428,149 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("keeps direct-agent tools, background tasks, and usage out of the parent turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "spawn one agent",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "direct-agent-task",
+        tool_use_id: "direct-agent-parent-tool",
+        description: "Direct agent",
+        task_type: "local_agent",
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-started",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "direct-agent-task",
+        description: "Direct agent",
+        usage: { total_tokens: 150000, tool_uses: 12, duration_ms: 5000 },
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-progress",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-tool-start",
+        parent_tool_use_id: "direct-agent-parent-tool",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "direct-agent-tool",
+            name: "Bash",
+            input: { command: "vp test run" },
+          },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-internal-result",
+        parent_tool_use_id: "direct-agent-parent-tool",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "some-other-direct-agent-tool",
+              content: "internal direct-agent output",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "direct-agent-shell",
+        tool_use_id: "direct-agent-shell-tool",
+        description: "vp test run",
+        task_type: "local_bash",
+        owned_by_subagent: true,
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-shell-started",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "direct-agent-shell",
+        description: "vp test run",
+        summary: "Running tests",
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-shell-progress",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "direct-agent-shell",
+        status: "completed",
+        summary: "Tests passed",
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-shell-completed",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-direct-agent",
+        uuid: "direct-agent-parent-result",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const itemEvents = runtimeEvents.filter(
+        (event) => event.type === "item.started" || event.type === "item.completed",
+      );
+      assert.equal(itemEvents.length, 2);
+      for (const event of itemEvents) {
+        if (event.type !== "item.started" && event.type !== "item.completed") continue;
+        assert.equal(event.payload.agentId, "direct-agent-task");
+        assert.equal(event.payload.parentToolUseId, "direct-agent-parent-tool");
+      }
+      const backgroundTaskEvents = runtimeEvents.filter(
+        (event) =>
+          event.type.startsWith("task.") &&
+          "taskId" in event.payload &&
+          String(event.payload.taskId) === "direct-agent-shell",
+      );
+      assert.equal(backgroundTaskEvents.length, 3);
+      for (const event of backgroundTaskEvents) {
+        assert.equal("timelineBypass" in event.payload && event.payload.timelineBypass, true);
+      }
+      assert.equal(
+        runtimeEvents.some((event) => event.type === "thread.token-usage.updated"),
+        false,
+      );
+      const thread = yield* adapter.readThread(session.threadId);
+      assert.deepEqual(thread.turns[0]?.items, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("falls back to a default plan step label for blank TodoWrite content", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
