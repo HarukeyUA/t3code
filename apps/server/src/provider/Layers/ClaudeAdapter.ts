@@ -615,46 +615,6 @@ function compactBoundaryTokenUsageSnapshot(
   });
 }
 
-function normalizeClaudeTaskProgressTokenUsage(
-  value: unknown,
-  context: ClaudeSessionContext,
-): ThreadTokenUsageSnapshot | undefined {
-  const totalTokens = claudeTotalProcessedTokens(value);
-  if (totalTokens === undefined || totalTokens <= 0) {
-    return undefined;
-  }
-
-  const lastUsedTokens = context.lastKnownTokenUsage?.usedTokens;
-  const activeTokens =
-    lastUsedTokens !== undefined ? Math.max(totalTokens, lastUsedTokens) : totalTokens;
-  if (lastUsedTokens !== undefined && activeTokens === lastUsedTokens) {
-    return undefined;
-  }
-
-  const usage = value as Record<string, unknown>;
-  const snapshot = makeClaudeTokenUsageSnapshot({
-    activeTokens,
-    ...(context.lastKnownContextWindow !== undefined
-      ? { contextWindow: context.lastKnownContextWindow }
-      : {}),
-    totalProcessedTokens: Math.max(
-      totalTokens,
-      context.lastKnownTotalProcessedTokens ?? totalTokens,
-    ),
-  });
-  if (!snapshot) {
-    return undefined;
-  }
-
-  const toolUses = finiteNonNegativeInteger(usage.tool_uses);
-  const durationMs = finiteNonNegativeInteger(usage.duration_ms);
-  return {
-    ...snapshot,
-    ...(toolUses !== undefined ? { toolUses } : {}),
-    ...(durationMs !== undefined ? { durationMs } : {}),
-  };
-}
-
 function asCanonicalTurnId(value: TurnId): TurnId {
   return value;
 }
@@ -2341,6 +2301,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: status === "completed" ? "completed" : "failed",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
+          ...(tool.agentId ? { agentId: tool.agentId } : {}),
+          ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: {
             toolName: tool.toolName,
             input: tool.input,
@@ -2651,7 +2613,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // spawning Task tool's id as parent_tool_use_id.
       const parentToolUseId =
         (message as { parent_tool_use_id?: string | null }).parent_tool_use_id ?? undefined;
-      const owningAgentId = agentIdForParentToolUse(context.taskAgents, parentToolUseId);
+      // Direct Task agents resolve to their stable task id. Workflow members
+      // are synthesized from workflow_progress and have no task_started row,
+      // so their parent id cannot be resolved through taskAgents. A non-null
+      // parent still authoritatively means "subagent-owned" on Claude's wire;
+      // retain it as a fallback attribution key so the quiet-timeline filter
+      // never mistakes the member's tool for parent work.
+      const owningAgentId =
+        agentIdForParentToolUse(context.taskAgents, parentToolUseId) ?? parentToolUseId;
 
       const tool: ToolInFlight = {
         itemId,
@@ -2726,7 +2695,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
-    if (context.turnState) {
+    const userParentToolUseId = (message as { parent_tool_use_id?: string | null })
+      .parent_tool_use_id;
+    if (context.turnState && (userParentToolUseId === null || userParentToolUseId === undefined)) {
       context.turnState.items.push(message.message);
     }
 
@@ -3260,14 +3231,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         return;
       }
       case "task_progress": {
-        yield* emitThreadTokenUsage(
-          context,
-          normalizeClaudeTaskProgressTokenUsage(message.usage, context),
-          {
-            rawMethod: "claude/system/task_progress",
-            rawPayload: message,
-          },
-        );
         const linkage = taskLinkageFor(context.taskAgents, message.task_id);
         const typedUsage = normalizeTaskUsage(message.usage);
         // Phases ride on the coordinator's ONE progress row per tick. A
@@ -3334,14 +3297,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
       case "task_notification": {
         context.liveTaskIds.delete(message.task_id);
-        yield* emitThreadTokenUsage(
-          context,
-          normalizeClaudeTaskProgressTokenUsage(message.usage, context),
-          {
-            rawMethod: "claude/system/task_notification",
-            rawPayload: message,
-          },
-        );
         const typedUsage = normalizeTaskUsage(message.usage);
         yield* offerRuntimeEvent({
           ...base,
