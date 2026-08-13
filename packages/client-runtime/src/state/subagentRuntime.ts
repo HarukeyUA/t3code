@@ -899,7 +899,10 @@ export function isAgentAttributedToolActivity(activity: OrchestrationThreadActiv
     return false;
   }
   const payload = activity.payload as Record<string, unknown>;
-  return typeof payload.agentId === "string" && payload.agentId.trim().length > 0;
+  const hasAgentId = typeof payload.agentId === "string" && payload.agentId.trim().length > 0;
+  const hasParentToolUseId =
+    typeof payload.parentToolUseId === "string" && payload.parentToolUseId.trim().length > 0;
+  return hasAgentId || hasParentToolUseId;
 }
 
 /** Timeline-bypassing synthesized rows (Codex children, workflow members). */

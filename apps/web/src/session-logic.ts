@@ -686,7 +686,7 @@ export function hasActionableProposedPlan(
  * at most one row per agent. Everything an agent does internally lives in the
  * Agents surface:
  * - timelineBypass rows (Codex children, workflow members) never render here;
- * - tool rows attributed to an owning agent (payload.agentId) are re-homed;
+ * - tool rows attributed to an owning agent are re-homed;
  * - task.progress ticks collapse into one row per taskId;
  * - task.updated is fold input only (status patches are not narrative).
  * Unattributed rows always stay: over-hiding loses the only terminal signal.
@@ -738,8 +738,14 @@ function isAgentInternalActivity(activity: OrchestrationThreadActivity): boolean
   if (payload.timelineBypass === true) {
     return true;
   }
-  // Non-task rows (attributed tool activity) owned by an agent are internal.
-  return typeof payload.agentId === "string" && payload.agentId.trim().length > 0;
+  // Claude workflow members do not always have a task.started linkage row,
+  // but their forwarded tools still carry the authoritative non-null parent
+  // tool id. Accept either marker so old partial-attribution rows stay quiet
+  // after reconnect as well as newly normalized rows.
+  const hasAgentId = typeof payload.agentId === "string" && payload.agentId.trim().length > 0;
+  const hasParentToolUseId =
+    typeof payload.parentToolUseId === "string" && payload.parentToolUseId.trim().length > 0;
+  return hasAgentId || hasParentToolUseId;
 }
 
 export function deriveWorkLogEntries(
