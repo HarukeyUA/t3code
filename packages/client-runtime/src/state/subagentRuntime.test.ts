@@ -380,14 +380,14 @@ describe("deriveAgentPanelModel", () => {
     expect(model.directAgents.map((agent) => agent.id)).toEqual(["direct-1"]);
   });
 
-  it("counts idle deliberately and waiting as active", () => {
+  it("counts workflow members without double-counting their coordinator", () => {
     const model = deriveAgentPanelModel({ agents: roster });
+    // One running workflow member, one completed member, and one idle direct
+    // spawn. The workflow coordinator is only their lifecycle envelope.
+    expect(model.runningCount).toBe(1);
     expect(model.idleCount).toBe(1);
-    // wf-1 coordinator + member 1 running.
-    expect(model.runningCount).toBeGreaterThanOrEqual(1);
-    expect(model.idleCount + model.runningCount + model.waitingCount + model.settledCount).toBe(
-      roster.length,
-    );
+    expect(model.settledCount).toBe(1);
+    expect(model.liveCount).toBe(1);
   });
 
   it("keeps direct spawns in first-seen order as their activity changes", () => {

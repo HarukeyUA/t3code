@@ -1753,6 +1753,67 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("workflow progress retains phases omitted by later partial snapshots", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const coordinatorProgressFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) => event.type === "task.progress" && String(event.payload.taskId) === "wf-phases",
+        ),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "run workflow",
+        attachments: [],
+      });
+
+      const tick = (uuid: string, workflowProgress: ReadonlyArray<Record<string, unknown>>) =>
+        harness.query.emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "wf-phases",
+          description: "Phased workflow",
+          workflow_progress: workflowProgress,
+          uuid,
+          session_id: "sdk-session",
+        } as unknown as SDKMessage);
+
+      tick("wf-phases-full", [
+        { type: "workflow_phase", index: 0, title: "Implement" },
+        { type: "workflow_phase", index: 1, title: "Verify" },
+      ]);
+      tick("wf-phases-partial", [{ type: "workflow_phase", index: 1, title: "Verify" }]);
+
+      const progressEvents = Array.from(yield* Fiber.join(coordinatorProgressFiber));
+      const phasesAt = (index: number) => {
+        const event = progressEvents[index];
+        return event ? (event.payload as { phases?: ReadonlyArray<unknown> }).phases : undefined;
+      };
+      assert.deepEqual(phasesAt(0), [
+        { index: 0, title: "Implement" },
+        { index: 1, title: "Verify" },
+      ]);
+      assert.deepEqual(phasesAt(1), [
+        { index: 0, title: "Implement" },
+        { index: 1, title: "Verify" },
+      ]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("task.started carries model/effort; subagent snapshots refine the model", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

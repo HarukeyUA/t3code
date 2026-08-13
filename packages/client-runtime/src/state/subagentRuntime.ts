@@ -826,15 +826,20 @@ export function deriveAgentPanelModel({
   let settledCount = 0;
   let totalTokens = 0;
   for (const agent of source) {
+    // A workflow coordinator is the lifecycle envelope around its members,
+    // not another worker. Count it only while there are no member rows yet,
+    // matching the totalTokens rule below and avoiding "2 working" for one
+    // active workflow member plus its coordinator.
+    if (agent.kind === "workflow" && (members.get(agent.id) ?? []).length > 0) {
+      continue;
+    }
     if (agent.status === "running" || agent.status === "pending") runningCount += 1;
     else if (agent.status === "waiting") waitingCount += 1;
     else if (agent.status === "idle") idleCount += 1;
     else settledCount += 1;
     // Workflow coordinators aggregate member usage upstream in some providers;
     // avoid double counting by only summing leaf agents when members exist.
-    if (agent.kind !== "workflow" || (members.get(agent.id) ?? []).length === 0) {
-      totalTokens += agent.usage?.totalTokens ?? 0;
-    }
+    totalTokens += agent.usage?.totalTokens ?? 0;
   }
 
   return {

@@ -237,6 +237,13 @@ interface ClaudeSessionContext {
    * even when nothing changed for most members.
    */
   readonly workflowMemberFingerprints: Map<string, string>;
+  /**
+   * Workflow phase snapshots are not reliably complete: some Claude ticks
+   * contain the whole workflow while others contain only the current phase.
+   * Keep the union per coordinator so the stable task.progress activity row
+   * never replaces a full phase rail with a partial one.
+   */
+  readonly workflowPhases: Map<string, ReadonlyArray<{ index: number; title: string }>>;
   /** Task ids that have started and not yet reached a terminal state. */
   readonly liveTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
@@ -1027,6 +1034,22 @@ interface ClaudeWorkflowAgentEntry {
 interface ClaudeWorkflowProgress {
   readonly phases: ReadonlyArray<{ index: number; title: string }>;
   readonly agents: ReadonlyArray<ClaudeWorkflowAgentEntry>;
+}
+
+function mergeWorkflowPhases(
+  previous: ReadonlyArray<{ index: number; title: string }> | undefined,
+  incoming: ReadonlyArray<{ index: number; title: string }>,
+): ReadonlyArray<{ index: number; title: string }> {
+  if (incoming.length === 0) {
+    return previous ?? [];
+  }
+  const phasesByIndex = new Map(previous?.map((phase) => [phase.index, phase]) ?? []);
+  for (const phase of incoming) {
+    phasesByIndex.set(phase.index, phase);
+  }
+  return Array.from(phasesByIndex.values())
+    .toSorted((a, b) => a.index - b.index)
+    .slice(0, WORKFLOW_PHASE_CAP);
 }
 
 /**
@@ -2962,15 +2985,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const emitWorkflowMemberProgress = Effect.fn("emitWorkflowMemberProgress")(function* (
     context: ClaudeSessionContext,
     base: Omit<ProviderRuntimeEvent, "type" | "payload">,
-    message: Extract<SDKMessage, { type: "system"; subtype: "task_progress" }>,
+    coordinatorId: string,
+    progress: ClaudeWorkflowProgress | undefined,
   ) {
-    const progress = parseWorkflowProgress(
-      (message as unknown as Record<string, unknown>).workflow_progress,
-    );
     if (!progress) {
       return;
     }
-    const coordinatorId = message.task_id;
     for (const entry of progress.agents) {
       const memberTaskId = `${coordinatorId}:wf:${entry.index}`;
       const status = workflowAgentStatus(entry);
@@ -3221,9 +3241,16 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         // separate phases-only row shared the stable ingestion activity id
         // with this full row, and the thinner upsert overwrote usage and
         // progress text (review finding).
-        const workflowPhases = parseWorkflowProgress(
+        const workflowProgress = parseWorkflowProgress(
           (message as unknown as Record<string, unknown>).workflow_progress,
-        )?.phases;
+        );
+        const workflowPhases = mergeWorkflowPhases(
+          context.workflowPhases.get(message.task_id),
+          workflowProgress?.phases ?? [],
+        );
+        if (workflowPhases.length > 0) {
+          context.workflowPhases.set(message.task_id, workflowPhases);
+        }
         yield* offerRuntimeEvent({
           ...base,
           type: "task.progress",
@@ -3239,7 +3266,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.subagent_type ? { role: message.subagent_type } : {}),
           },
         });
-        yield* emitWorkflowMemberProgress(context, base, message);
+        yield* emitWorkflowMemberProgress(context, base, message.task_id, workflowProgress);
         return;
       }
       case "task_updated": {
@@ -3760,6 +3787,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const workflowMemberFingerprints = new Map<string, string>();
+      const workflowPhases = new Map<string, ReadonlyArray<{ index: number; title: string }>>();
       const liveTaskIds = new Set<string>();
 
       const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
@@ -4214,6 +4242,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         claudeTasks,
         taskAgents,
         workflowMemberFingerprints,
+        workflowPhases,
         liveTaskIds,
         turnState: undefined,
         lastKnownContextWindow: initialContextWindow,
