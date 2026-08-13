@@ -81,4 +81,31 @@ describe("runtimeEventToActivities task progress", () => {
     expect(usagePayload.usageSnapshot).toBe(true);
     expect(usagePayload).not.toHaveProperty("status");
   });
+
+  it("preserves timeline bypass on background task progress and usage", () => {
+    const event = {
+      ...base,
+      type: "task.progress",
+      eventId: EventId.make("evt-background-shell"),
+      payload: {
+        taskId: RuntimeTaskId.make("background-shell"),
+        taskType: "local_bash",
+        description: "Running tests",
+        summary: "Running tests",
+        typedUsage: { totalTokens: 8_400, toolUses: 3 },
+        timelineBypass: true,
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const activities = runtimeEventToActivities(event);
+
+    expect(activities).toHaveLength(2);
+    for (const activity of activities) {
+      expect(activity.payload).toMatchObject({
+        taskType: "local_bash",
+        agentKind: "background",
+        timelineBypass: true,
+      });
+    }
+  });
 });

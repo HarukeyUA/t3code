@@ -199,6 +199,8 @@ interface ClaudeTaskAgentState {
   taskType: string | undefined;
   workflowName: string | undefined;
   skipTranscript: boolean;
+  /** Claude wire flag for background work launched inside a subagent. */
+  ownedBySubagent: boolean;
   runHandles: TaskRunHandles | undefined;
   /** Set when this task was launched from inside a subagent. */
   owningAgentId: string | undefined;
@@ -970,6 +972,7 @@ function taskLinkageFor(
     ...(agent.toolUseId ? { toolUseId: agent.toolUseId } : {}),
     ...(agent.workflowName ? { workflowName: agent.workflowName } : {}),
     ...(agent.runHandles ? { runHandles: agent.runHandles } : {}),
+    ...(agent.ownedBySubagent ? { timelineBypass: true } : {}),
   };
 }
 
@@ -2796,6 +2799,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             taskType: existing?.taskType ?? "local_workflow",
             workflowName: existing?.workflowName,
             skipTranscript: existing?.skipTranscript ?? false,
+            ownedBySubagent: existing?.ownedBySubagent ?? false,
             runHandles,
             owningAgentId: existing?.owningAgentId,
             model: existing?.model,
@@ -3163,6 +3167,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           (typeof rawLaunchEffort === "number" && Number.isFinite(rawLaunchEffort)
             ? String(rawLaunchEffort)
             : context.currentEffort);
+        // Undeclared-but-real Claude wire field. Background Bash tasks that
+        // run inside an agent have no parent agent id, but this flag is the
+        // authoritative ownership signal. Persist it as timelineBypass on
+        // every lifecycle row so agent-internal work never reaches the
+        // parent's work log.
+        const ownedBySubagent =
+          (message as unknown as Record<string, unknown>).owned_by_subagent === true;
         // Remember the agent identity so every later task.* payload for this
         // taskId is self-describing (identity must survive activity retention).
         context.taskAgents.set(message.task_id, {
@@ -3173,6 +3184,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           taskType: message.task_type,
           workflowName: message.workflow_name,
           skipTranscript: message.skip_transcript === true,
+          ownedBySubagent,
           runHandles: context.taskAgents.get(message.task_id)?.runHandles,
           owningAgentId,
           model,
@@ -3193,6 +3205,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(effort ? { effort } : {}),
             ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
             ...(message.workflow_name ? { workflowName: message.workflow_name } : {}),
+            ...(ownedBySubagent ? { timelineBypass: true } : {}),
           },
         });
         return;
