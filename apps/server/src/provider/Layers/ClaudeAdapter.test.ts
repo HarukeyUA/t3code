@@ -1293,6 +1293,95 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("attributes workflow-member tools through forced turn completion", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "run workflow",
+        attachments: [],
+      });
+
+      // Workflow members are synthesized from workflow_progress, so unlike a
+      // direct Task agent this parent id has no task_started linkage entry.
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-workflow-tool",
+        uuid: "workflow-tool-start",
+        parent_tool_use_id: "workflow-member-parent-id",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "workflow-member-tool",
+            name: "Bash",
+            input: { command: "vp test run" },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      // Forwarded workflow-member tool results must be handled for lifecycle
+      // purposes without joining the parent turn's persisted item snapshot.
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-workflow-tool",
+        uuid: "workflow-internal-user-message",
+        parent_tool_use_id: "workflow-member-parent-id",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "some-other-workflow-member-tool",
+              content: "internal workflow output",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+
+      // The parent result force-completes in-flight tools. That path must keep
+      // the same attribution or its completion row leaks into the main log.
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-workflow-tool",
+        uuid: "workflow-tool-result",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const itemEvents = runtimeEvents.filter(
+        (event) => event.type === "item.started" || event.type === "item.completed",
+      );
+      assert.equal(itemEvents.length, 2);
+      for (const event of itemEvents) {
+        if (event.type !== "item.started" && event.type !== "item.completed") continue;
+        assert.equal(event.payload.agentId, "workflow-member-parent-id");
+        assert.equal(event.payload.parentToolUseId, "workflow-member-parent-id");
+      }
+      const thread = yield* adapter.readThread(session.threadId);
+      assert.deepEqual(thread.turns[0]?.items, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("falls back to a default plan step label for blank TodoWrite content", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -2161,7 +2250,11 @@ describe("ClaudeAdapterLive", () => {
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil(
+          (event) =>
+            event.type === "task.progress" && String(event.payload.taskId) === "task-subagent-1",
+        ),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2348,12 +2441,16 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("emits thread token usage updates from Claude task progress", () => {
+  it.effect("keeps Claude task usage scoped to the task lifecycle", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
 
-      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 6).pipe(
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil(
+          (event) =>
+            event.type === "task.completed" && String(event.payload.taskId) === "task-usage-1",
+        ),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2377,24 +2474,41 @@ describe("ClaudeAdapterLive", () => {
         session_id: "sdk-session-task-usage",
         uuid: "task-usage-progress-1",
       } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-usage-1",
+        status: "completed",
+        summary: "done",
+        usage: {
+          total_tokens: 400,
+          tool_uses: 3,
+          duration_ms: 800,
+        },
+        session_id: "sdk-session-task-usage",
+        uuid: "task-usage-completed-1",
+      } as unknown as SDKMessage);
 
       const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
       const usageEvent = runtimeEvents.find((event) => event.type === "thread.token-usage.updated");
       const progressEvent = runtimeEvents.find((event) => event.type === "task.progress");
-      assert.equal(usageEvent?.type, "thread.token-usage.updated");
-      if (usageEvent?.type === "thread.token-usage.updated") {
-        assert.deepEqual(usageEvent.payload, {
-          usage: {
-            usedTokens: 321,
-            lastUsedTokens: 321,
-            toolUses: 2,
-            durationMs: 654,
-          },
+      const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+      assert.equal(usageEvent, undefined);
+      assert.equal(progressEvent?.type, "task.progress");
+      if (progressEvent?.type === "task.progress") {
+        assert.deepEqual(progressEvent.payload.typedUsage, {
+          totalTokens: 321,
+          toolUses: 2,
+          durationMs: 654,
         });
       }
-      assert.equal(progressEvent?.type, "task.progress");
-      if (usageEvent && progressEvent) {
-        assert.notStrictEqual(usageEvent.eventId, progressEvent.eventId);
+      assert.equal(completedEvent?.type, "task.completed");
+      if (completedEvent?.type === "task.completed") {
+        assert.deepEqual(completedEvent.payload.typedUsage, {
+          totalTokens: 400,
+          toolUses: 3,
+          durationMs: 800,
+        });
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -2532,86 +2646,95 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect(
-    "preserves oversized Claude result totals after task progress snapshots are recorded",
-    () => {
-      const harness = makeHarness();
-      return Effect.gen(function* () {
-        const adapter = yield* ClaudeAdapter;
+  it.effect("task progress cannot inflate parent context before a cumulative result total", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
 
-        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
-          Stream.runCollect,
-          Effect.forkChild,
-        );
-
-        yield* adapter.startSession({
-          threadId: THREAD_ID,
-          provider: ProviderDriverKind.make("claudeAgent"),
-          runtimeMode: "full-access",
-        });
-
-        yield* adapter.sendTurn({
-          threadId: THREAD_ID,
-          input: "hello",
-          attachments: [],
-        });
-
-        harness.query.emit({
-          type: "system",
-          subtype: "task_progress",
-          task_id: "task-usage-clamped",
-          description: "Thinking through the patch",
-          usage: {
-            total_tokens: 190000,
-          },
-          session_id: "sdk-session-task-usage-clamped",
-          uuid: "task-usage-progress-clamped",
-        } as unknown as SDKMessage);
-
-        harness.query.emit({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          duration_ms: 1234,
-          duration_api_ms: 1200,
-          num_turns: 1,
-          result: "done",
-          stop_reason: "end_turn",
-          session_id: "sdk-session-result-usage-clamped-after-progress",
-          usage: {
-            total_tokens: 535000,
-          },
-          modelUsage: {
-            "claude-opus-4-6": {
-              contextWindow: 200000,
-              maxOutputTokens: 64000,
-            },
-          },
-        } as unknown as SDKMessage);
-        harness.query.finish();
-
-        const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
-        const usageEvents = runtimeEvents.filter(
-          (event) => event.type === "thread.token-usage.updated",
-        );
-        const finalUsageEvent = usageEvents.at(-1);
-        assert.equal(finalUsageEvent?.type, "thread.token-usage.updated");
-        if (finalUsageEvent?.type === "thread.token-usage.updated") {
-          assert.deepEqual(finalUsageEvent.payload, {
-            usage: {
-              usedTokens: 190000,
-              lastUsedTokens: 190000,
-              totalProcessedTokens: 535000,
-              maxTokens: 200000,
-            },
-          });
-        }
-      }).pipe(
-        Effect.provideService(Random.Random, makeDeterministicRandomService()),
-        Effect.provide(harness.layer),
+      const runtimeEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
       );
-    },
-  );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "hello",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: {
+          pre_tokens: 60000,
+          post_tokens: 50000,
+        },
+        session_id: "sdk-session-parent-context",
+        uuid: "parent-context-before-task-progress",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-usage-clamped",
+        description: "Thinking through the patch",
+        usage: {
+          total_tokens: 190000,
+        },
+        session_id: "sdk-session-task-usage-clamped",
+        uuid: "task-usage-progress-clamped",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 1234,
+        duration_api_ms: 1200,
+        num_turns: 1,
+        result: "done",
+        stop_reason: "end_turn",
+        session_id: "sdk-session-result-usage-clamped-after-progress",
+        usage: {
+          total_tokens: 535000,
+        },
+        modelUsage: {
+          "claude-opus-4-6": {
+            contextWindow: 200000,
+            maxOutputTokens: 64000,
+          },
+        },
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const usageEvents = runtimeEvents.filter(
+        (event) => event.type === "thread.token-usage.updated",
+      );
+      const finalUsageEvent = usageEvents.at(-1);
+      assert.equal(finalUsageEvent?.type, "thread.token-usage.updated");
+      if (finalUsageEvent?.type === "thread.token-usage.updated") {
+        assert.deepEqual(finalUsageEvent.payload, {
+          usage: {
+            usedTokens: 50000,
+            lastUsedTokens: 60000,
+            totalProcessedTokens: 535000,
+            maxTokens: 200000,
+          },
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
 
   it.effect(
     "emits completion only after turn result when assistant frames arrive before deltas",
