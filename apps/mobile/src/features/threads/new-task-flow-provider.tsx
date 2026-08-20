@@ -75,7 +75,9 @@ import {
   sortHomeProjectScopes,
   type HomeProjectScope,
 } from "../home/homeThreadList";
+import { mergeProviderSkills } from "@t3tools/client-runtime/providerSkills";
 import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
+import { useProviderProjectCommands } from "../../state/queries";
 import { resolvePendingTaskInteractionMode } from "./legacy-plan-mode";
 import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
@@ -444,12 +446,22 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
+  // Workspace-scoped skills so inline `$skill` decoration in the new-task
+  // editor recognizes project skills, matching the thread composer's merge.
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId: selectedProject?.environmentId ?? null,
+    instanceId: selectedModel?.instanceId ?? null,
+    cwd: selectedProject?.workspaceRoot ?? null,
+  });
   const selectedProviderSkills = useMemo(
     () =>
-      selectedEnvironmentServerConfig?.providers.find(
-        (provider) => provider.instanceId === selectedModel?.instanceId,
-      )?.skills ?? [],
-    [selectedEnvironmentServerConfig, selectedModel?.instanceId],
+      mergeProviderSkills(
+        selectedEnvironmentServerConfig?.providers.find(
+          (provider) => provider.instanceId === selectedModel?.instanceId,
+        )?.skills ?? [],
+        providerProjectCommands.skills,
+      ),
+    [providerProjectCommands.skills, selectedEnvironmentServerConfig, selectedModel?.instanceId],
   );
   const setSelectedModelKey = useCallback(
     // Options ride along in the same write: a follow-up setSelectedModelOptions

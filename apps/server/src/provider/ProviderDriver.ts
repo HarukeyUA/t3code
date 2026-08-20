@@ -25,6 +25,7 @@ import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
+  ProviderProjectCommandsResult,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
@@ -71,6 +72,14 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  /**
+   * Best-effort discovery of workspace-scoped slash commands and skills for
+   * one project directory, used by the composer command menu on top of the
+   * environment-scoped `snapshot` lists. Absent when the driver has no
+   * notion of project-local commands; must never fail — unreadable
+   * directories yield empty lists.
+   */
+  readonly projectCommands?: (cwd: string) => Effect.Effect<ProviderProjectCommandsResult>;
 }
 
 export interface ProviderContinuationIdentity {

@@ -23,37 +23,56 @@ import { expandHomePath } from "../../pathExpansion.ts";
 
 type ClaudeSkillScope = "user" | "project";
 
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+// The YAML block is optional so an empty `---\n---` frontmatter still
+// matches and its delimiters are stripped from `body`.
+const FRONTMATTER_PATTERN = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/;
 
-type SkillFrontmatter =
-  | { readonly kind: "missing" }
-  | { readonly kind: "malformed" }
-  | { readonly kind: "parsed"; readonly name?: string; readonly description?: string };
+/**
+ * Parsed YAML frontmatter of a Claude Code markdown asset (skill or slash
+ * command). `body` is the contents with the frontmatter block stripped, kept
+ * so callers can fall back to prompt text for missing metadata.
+ */
+export type ClaudeMarkdownFrontmatter =
+  | { readonly kind: "missing"; readonly body: string }
+  | { readonly kind: "malformed"; readonly body: string }
+  | { readonly kind: "parsed"; readonly fields: Record<string, unknown>; readonly body: string };
 
-function parseSkillFrontmatter(contents: string): SkillFrontmatter {
+export function parseClaudeMarkdownFrontmatter(contents: string): ClaudeMarkdownFrontmatter {
   const match = FRONTMATTER_PATTERN.exec(contents);
   if (!match) {
-    return { kind: "missing" };
+    return { kind: "missing", body: contents };
+  }
+
+  const body = contents.slice(match[0].length);
+  const yamlText = match[1] ?? "";
+  if (yamlText.trim() === "") {
+    return { kind: "parsed", fields: {}, body };
   }
 
   let parsed: unknown;
   try {
-    parsed = parseYamlDocument(match[1] ?? "");
+    parsed = parseYamlDocument(yamlText);
   } catch {
-    return { kind: "malformed" };
+    return { kind: "malformed", body };
   }
   if (typeof parsed !== "object" || parsed === null) {
-    return { kind: "malformed" };
+    return { kind: "malformed", body };
   }
 
-  const record = parsed as Record<string, unknown>;
-  const name = typeof record.name === "string" ? record.name.trim() : "";
-  const description = typeof record.description === "string" ? record.description.trim() : "";
-  return {
-    kind: "parsed",
-    ...(name ? { name } : {}),
-    ...(description ? { description } : {}),
-  };
+  return { kind: "parsed", fields: parsed as Record<string, unknown>, body };
+}
+
+/** Read a trimmed non-empty string field out of parsed frontmatter. */
+export function claudeFrontmatterString(
+  frontmatter: ClaudeMarkdownFrontmatter,
+  field: string,
+): string | undefined {
+  if (frontmatter.kind !== "parsed") {
+    return undefined;
+  }
+  const value = frontmatter.fields[field];
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed ? trimmed : undefined;
 }
 
 /**
@@ -126,7 +145,7 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
         continue;
       }
 
-      const frontmatter = parseSkillFrontmatter(contents);
+      const frontmatter = parseClaudeMarkdownFrontmatter(contents);
       // Malformed frontmatter means the skill won't load in Claude Code
       // either — skip it rather than surfacing a broken entry under its
       // directory name.
@@ -134,19 +153,18 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
         continue;
       }
 
-      const name = (frontmatter.kind === "parsed" ? frontmatter.name : undefined) ?? entry.trim();
+      const name = claudeFrontmatterString(frontmatter, "name") ?? entry.trim();
       if (!name) {
         continue;
       }
 
+      const description = claudeFrontmatterString(frontmatter, "description");
       skillsByName.set(name, {
         name,
         path: skillPath,
         enabled: true,
         scope: root.scope,
-        ...(frontmatter.kind === "parsed" && frontmatter.description
-          ? { description: frontmatter.description }
-          : {}),
+        ...(description ? { description } : {}),
       });
     }
   }

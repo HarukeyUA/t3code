@@ -165,6 +165,9 @@ import {
   PreviewAutomationStreamEvent,
 } from "./previewAutomation.ts";
 import {
+  ProviderProjectCommandsError,
+  ProviderProjectCommandsInput,
+  ProviderProjectCommandsResult,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerProviderUpdateError,
@@ -274,6 +277,7 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
+  providersGetProjectCommands: "providers.getProjectCommands",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -375,6 +379,12 @@ export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvide
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ServerProviderUpdateError, EnvironmentAuthorizationError]),
+});
+
+export const WsProvidersGetProjectCommandsRpc = Rpc.make(WS_METHODS.providersGetProjectCommands, {
+  payload: ProviderProjectCommandsInput,
+  success: ProviderProjectCommandsResult,
+  error: Schema.Union([ProviderProjectCommandsError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateServerRpc = Rpc.make(WS_METHODS.serverUpdateServer, {
@@ -1022,6 +1032,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsProvidersGetProjectCommandsRpc,
   WsServerUpdateServerRpc,
   WsServerUpdateServerWithProgressRpc,
   WsServerUpsertKeybindingRpc,

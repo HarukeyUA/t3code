@@ -14,6 +14,9 @@ import type {
   OrchestrationThread,
   ProjectContentMatch,
   ProjectEntryKind,
+  ProviderInstanceId,
+  ServerProviderSkill,
+  ServerProviderSlashCommand,
   ThreadId,
   VcsListRefsResult,
   VcsRef,
@@ -300,6 +303,38 @@ export function useProjectPathSearch(
 
 export function useComposerPathSearch(target: ComposerPathSearchTarget) {
   return useProjectPathSearch(target, COMPOSER_PATH_SEARCH_LIMIT);
+}
+
+const EMPTY_PROJECT_SLASH_COMMANDS: ReadonlyArray<ServerProviderSlashCommand> = [];
+const EMPTY_PROJECT_SKILLS: ReadonlyArray<ServerProviderSkill> = [];
+
+export interface ProviderProjectCommandsTarget {
+  readonly environmentId: EnvironmentId | null;
+  readonly instanceId: ProviderInstanceId | null;
+  readonly cwd: string | null;
+}
+
+/**
+ * Workspace-scoped slash commands and skills for one provider instance and
+ * project directory, layered by the composer on top of the environment-scoped
+ * `ServerProvider` lists via `mergeProviderSlashCommands` / `mergeProviderSkills`.
+ */
+export function useProviderProjectCommands(target: ProviderProjectCommandsTarget) {
+  const result = useEnvironmentQuery(
+    target.environmentId !== null && target.instanceId !== null && target.cwd !== null
+      ? projectEnvironment.providerProjectCommands({
+          environmentId: target.environmentId,
+          input: { instanceId: target.instanceId, cwd: target.cwd },
+        })
+      : null,
+  );
+  return {
+    slashCommands: result.data?.slashCommands ?? EMPTY_PROJECT_SLASH_COMMANDS,
+    skills: result.data?.skills ?? EMPTY_PROJECT_SKILLS,
+    // The (environmentId, instanceId, cwd) key is static while a project is
+    // open, so SWR alone never revalidates; callers refresh on picker open.
+    refresh: result.refresh,
+  };
 }
 
 interface ProjectContentSearchTarget {

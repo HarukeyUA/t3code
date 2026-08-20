@@ -712,6 +712,14 @@ export const ProviderRegistryLive = Layer.effect(
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
+      getProjectCommands: (instanceId, cwd) =>
+        Effect.gen(function* () {
+          const instance = yield* instanceRegistry.getInstance(instanceId);
+          if (instance?.projectCommands === undefined) {
+            return { slashCommands: [], skills: [] };
+          }
+          return yield* instance.projectCommands(cwd);
+        }),
       get streamChanges() {
         return Stream.fromPubSub(changesPubSub);
       },

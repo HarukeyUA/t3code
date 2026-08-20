@@ -72,6 +72,14 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    // Workspace-scoped provider slash commands and skills for the composer
+    // command menu, layered on top of the environment-scoped snapshot lists.
+    providerProjectCommands: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:providers:project-commands",
+      tag: WS_METHODS.providersGetProjectCommands,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {

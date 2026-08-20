@@ -598,6 +598,38 @@ export const ServerProviderUpdateInput = Schema.Struct({
 });
 export type ServerProviderUpdateInput = typeof ServerProviderUpdateInput.Type;
 
+export const ProviderProjectCommandsInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwd: TrimmedNonEmptyString,
+});
+export type ProviderProjectCommandsInput = typeof ProviderProjectCommandsInput.Type;
+
+/**
+ * Workspace-scoped composer command-menu entries for one provider instance
+ * and one project directory: slash commands and skills defined inside the
+ * project itself (e.g. Claude's `.claude/commands` and `.claude/skills`).
+ * Environment-scoped entries stay on `ServerProvider.slashCommands` /
+ * `ServerProvider.skills`; clients merge the two, project entries winning
+ * on name collisions.
+ */
+export const ProviderProjectCommandsResult = Schema.Struct({
+  slashCommands: Schema.Array(ServerProviderSlashCommand).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ProviderProjectCommandsResult = typeof ProviderProjectCommandsResult.Type;
+
+export class ProviderProjectCommandsError extends Schema.TaggedErrorClass<ProviderProjectCommandsError>()(
+  "ProviderProjectCommandsError",
+  {
+    instanceId: Schema.optional(ProviderInstanceId),
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerProviderUpdateError>()(
   "ServerProviderUpdateError",
   {

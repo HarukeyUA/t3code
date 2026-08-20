@@ -9,6 +9,7 @@
 import type {
   ProviderInstanceId,
   ProviderDriverKind,
+  ProviderProjectCommandsResult,
   ServerProvider,
   ServerProviderUpdateState,
 } from "@t3tools/contracts";
@@ -68,6 +69,17 @@ export interface ProviderRegistryShape {
     readonly action: ProviderMaintenanceActionKind;
     readonly state: ServerProviderUpdateState | null;
   }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+  /**
+   * Workspace-scoped slash commands and skills one live instance discovers
+   * inside a project directory, layered by clients on top of the
+   * environment-scoped snapshot lists. Resolves empty when the instance is
+   * unknown or its driver has no notion of project-local commands.
+   */
+  readonly getProjectCommands: (
+    instanceId: ProviderInstanceId,
+    cwd: string,
+  ) => Effect.Effect<ProviderProjectCommandsResult>;
 
   /**
    * Stream of provider snapshot updates — one emission per aggregated

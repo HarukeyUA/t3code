@@ -46,12 +46,19 @@ offers to compact the conversation before you continue. You can also select **Co
 from the context meter. On every client, you can enter `/compact` in the message composer, and
 Claude can show its own resume prompt when you continue an old session.
 
-## Where Claude Skills Are Loaded
+## Where Claude Skills And Slash Commands Are Loaded
 
 T3 Code looks for Claude skills in the Claude config directory's `skills` folder, then
-`<workspace>/.agents/skills`, then `<workspace>/.claude/skills`.
+`<project>/.agents/skills`, then `<project>/.claude/skills`. `<project>` is the directory of the
+project you are typing in — or the thread's worktree, when the thread runs in one.
 
 If the same skill name exists in more than one folder, the later folder wins.
+
+Slash commands in the `/` menu combine what Claude Code itself reports — built-in and personal
+commands — with the project's own `.claude/commands` folder. Commands in subfolders are namespaced
+the way Claude Code names them: `.claude/commands/frontend/component.md` appears as
+`/frontend:component`. A project command replaces a same-named entry from Claude Code's own list in
+the menu; Claude Code itself still decides which one runs.
 
 ## I Want Work And Personal Claude Accounts
 
