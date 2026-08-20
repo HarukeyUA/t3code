@@ -59,6 +59,8 @@ import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { mergeProviderSkills } from "@t3tools/client-runtime/providerSkills";
+import { useProviderProjectCommands } from "../../state/queries";
 import type {
   PendingApproval,
   PendingUserInput,
@@ -445,11 +447,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  // Same (instanceId, cwd) key as the composer's project-commands query, so
+  // the timeline's `$skill` decoration reuses the composer's cached fetch.
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId: props.environmentId,
+    instanceId: selectedInstanceId,
+    cwd: props.selectedThread.worktreePath ?? props.projectWorkspaceRoot,
+  });
   const selectedProviderSkills = useMemo(
     () =>
-      props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
-        ?.skills ?? [],
-    [props.serverConfig, selectedInstanceId],
+      mergeProviderSkills(
+        props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
+          ?.skills ?? [],
+        providerProjectCommands.skills,
+      ),
+    [props.serverConfig, providerProjectCommands.skills, selectedInstanceId],
   );
 
   useLayoutEffect(() => {

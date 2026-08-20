@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   formatProviderSkillDisplayName,
+  mergeProviderSkills,
+  mergeProviderSlashCommands,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
 
@@ -73,5 +75,54 @@ describe("resolveProviderSkillSourceKind", () => {
         path: "/opt/skills/team-review/SKILL.md",
       }),
     ).toBe("other");
+  });
+});
+
+describe("mergeProviderSlashCommands", () => {
+  it("returns the environment list unchanged when the project adds nothing", () => {
+    const environment = [{ name: "compact" }];
+    expect(mergeProviderSlashCommands(environment, [])).toBe(environment);
+  });
+
+  it("replaces same-named commands in place and appends new ones", () => {
+    expect(
+      mergeProviderSlashCommands(
+        [{ name: "compact" }, { name: "review", description: "user review" }],
+        [
+          { name: "Review", description: "project review" },
+          { name: "deploy", description: "project deploy" },
+        ],
+      ),
+    ).toEqual([
+      { name: "compact" },
+      { name: "Review", description: "project review" },
+      { name: "deploy", description: "project deploy" },
+    ]);
+  });
+});
+
+describe("mergeProviderSkills", () => {
+  it("returns the environment list unchanged when the project adds nothing", () => {
+    const environment = [{ name: "review", path: "/home/.claude/skills/review", enabled: true }];
+    expect(mergeProviderSkills(environment, [])).toBe(environment);
+  });
+
+  it("replaces same-named skills in place and appends new ones", () => {
+    expect(
+      mergeProviderSkills(
+        [
+          { name: "review", path: "/home/.claude/skills/review", enabled: true, scope: "user" },
+          { name: "docs", path: "/home/.claude/skills/docs", enabled: true, scope: "user" },
+        ],
+        [
+          { name: "review", path: "/repo/.claude/skills/review", enabled: true, scope: "project" },
+          { name: "deploy", path: "/repo/.claude/skills/deploy", enabled: true, scope: "project" },
+        ],
+      ),
+    ).toEqual([
+      { name: "review", path: "/repo/.claude/skills/review", enabled: true, scope: "project" },
+      { name: "docs", path: "/home/.claude/skills/docs", enabled: true, scope: "user" },
+      { name: "deploy", path: "/repo/.claude/skills/deploy", enabled: true, scope: "project" },
+    ]);
   });
 });

@@ -65,7 +65,12 @@ import {
   scoreQueryMatch,
 } from "@t3tools/shared/searchRanking";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import {
+  mergeProviderSkills,
+  mergeProviderSlashCommands,
+} from "@t3tools/client-runtime/providerSkills";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
+import { useProviderProjectCommands } from "../../state/queries";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
 import {
   type ExistingThreadSettingsRouteSession,
@@ -355,6 +360,29 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
 
+  // Workspace-scoped commands and skills live in the project directory and
+  // are invisible to the environment-wide provider snapshot; fetch them for
+  // the active instance and layer them over the snapshot lists.
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId: props.environmentId,
+    instanceId: selectedProviderStatus?.instanceId ?? null,
+    // Worktree threads keep their commands and skills in the worktree's own
+    // checkout, matching web's `gitCwd` resolution.
+    cwd: props.selectedThread.worktreePath ?? props.projectCwd,
+  });
+  const selectedProviderSlashCommands = useMemo(
+    () =>
+      mergeProviderSlashCommands(
+        selectedProviderStatus?.slashCommands ?? [],
+        providerProjectCommands.slashCommands,
+      ),
+    [providerProjectCommands.slashCommands, selectedProviderStatus],
+  );
+  const selectedProviderSkills = useMemo(
+    () => mergeProviderSkills(selectedProviderStatus?.skills ?? [], providerProjectCommands.skills),
+    [providerProjectCommands.skills, selectedProviderStatus],
+  );
+
   // ── Trigger detection ────────────────────────────────────
   const [composerSelection, setComposerSelection] = useState(() => ({
     start: props.draftMessage.length,
@@ -387,6 +415,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     cwd: composerTrigger?.kind === "path" ? props.projectCwd : null,
     query: composerTrigger?.kind === "path" ? composerTrigger.query : null,
   });
+  // The project-commands query key is static while this project stays open,
+  // so SWR never revalidates on its own; re-scan when the picker opens so a
+  // freshly added command file shows up. The cached list renders instantly
+  // while the background refetch runs.
+  const composerTriggerKind = composerTrigger?.kind ?? null;
+  const refreshProjectCommands = providerProjectCommands.refresh;
+  useEffect(() => {
+    if (composerTriggerKind === "slash-command" || composerTriggerKind === "skill") {
+      refreshProjectCommands();
+    }
+  }, [composerTriggerKind, refreshProjectCommands]);
 
   const composerMenuItems: ComposerCommandItem[] = useMemo(() => {
     if (!composerTrigger) return [];
@@ -419,7 +458,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
 
       const providerCommands: ComposerCommandItem[] = [];
-      for (const cmd of selectedProviderStatus?.slashCommands ?? []) {
+      for (const cmd of selectedProviderSlashCommands) {
         if (!cmd.name.toLowerCase().includes(q)) continue;
         providerCommands.push({
           id: `pcmd:${cmd.name}`,
@@ -434,7 +473,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     if (composerTrigger.kind === "skill") {
-      const enabledSkills = (selectedProviderStatus?.skills ?? []).filter((s) => s.enabled);
+      const enabledSkills = selectedProviderSkills.filter((s) => s.enabled);
       const normalizedQuery = normalizeSearchQuery(composerTrigger.query, {
         trimLeadingPattern: /^\$+/,
       });
@@ -531,7 +570,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     return [];
-  }, [composerTrigger, pathSearch.entries, selectedProviderStatus]);
+  }, [composerTrigger, pathSearch.entries, selectedProviderSkills, selectedProviderSlashCommands]);
 
   // ── Handle command selection ──────────────────────────────
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
@@ -783,7 +822,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               ref={inputRef}
               multiline
               value={props.draftMessage}
-              skills={selectedProviderStatus?.skills ?? []}
+              skills={selectedProviderSkills}
               selection={composerSelection}
               onChangeText={props.onChangeDraftMessage}
               onSelectionChange={handleSelectionChange}

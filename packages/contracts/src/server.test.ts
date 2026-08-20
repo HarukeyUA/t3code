@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  ProviderProjectCommandsResult,
   ServerConfig,
   ServerProvider,
   ServerProviders,
@@ -12,6 +13,7 @@ const decodeServerProvider = Schema.decodeUnknownSync(ServerProvider);
 const decodeServerProviders = Schema.decodeUnknownSync(ServerProviders);
 const decodeUpsertKeybindingResult = Schema.decodeUnknownSync(ServerUpsertKeybindingResult);
 const decodeAvailableEditors = Schema.decodeUnknownSync(ServerConfig.fields.availableEditors);
+const decodeProviderProjectCommandsResult = Schema.decodeUnknownSync(ProviderProjectCommandsResult);
 
 const baseProviderSnapshot = {
   instanceId: "codex",
@@ -114,6 +116,15 @@ describe("ServerProvider", () => {
     });
 
     expect(parsed.models[0]?.isLegacy).toBe(true);
+  });
+});
+
+describe("ProviderProjectCommandsResult", () => {
+  it("defaults both lists when decoding an empty payload", () => {
+    const parsed = decodeProviderProjectCommandsResult({});
+
+    expect(parsed.slashCommands).toEqual([]);
+    expect(parsed.skills).toEqual([]);
   });
 });
 
