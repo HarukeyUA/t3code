@@ -1656,6 +1656,12 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.providersGetProjectCommands]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providersGetProjectCommands,
+            providerRegistry.getProjectCommands(input.instanceId, input.cwd),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverUpdateServer]: (input) =>
           observeRpcEffect(WS_METHODS.serverUpdateServer, serverSelfUpdate.update(input), {
             "rpc.aggregate": "server",

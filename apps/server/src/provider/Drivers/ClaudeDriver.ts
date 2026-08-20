@@ -28,6 +28,7 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
+import { discoverClaudeProjectCommands } from "./ClaudeCommands.ts";
 import { makeClaudeAdapter } from "../Layers/ClaudeAdapter.ts";
 import {
   checkClaudeProviderStatus,
@@ -189,6 +190,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         Effect.provideService(Path.Path, path),
       );
 
+      // Project-scope commands and skills live inside each project's own
+      // directory, which the environment-wide snapshot probe (pinned to the
+      // server's cwd) cannot see. Discovery is a pure filesystem scan, so
+      // running it per request keeps results fresh without a subprocess.
+      const projectCommands = (projectCwd: string) =>
+        discoverClaudeProjectCommands(effectiveConfig, projectCwd, processEnv).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        );
+
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<ClaudeSettings>>({
         maintenanceCapabilities,
@@ -235,6 +246,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        projectCommands,
       } satisfies ProviderInstance;
     }),
 };

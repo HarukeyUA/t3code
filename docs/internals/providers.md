@@ -123,6 +123,21 @@ Do not run an old image-only server against state that contains file attachments
 each persisted event before projection. A file-bearing event can make `ProjectionPipeline` bootstrap
 and `OrchestrationEngine` startup fail for the entire environment, not only the affected thread.
 
+## Project-scoped commands and skills
+
+Provider snapshots are environment-scoped: the `slashCommands` and `skills` arrays on
+`ServerProvider` come from probes run against the server's own cwd, so they only reliably carry
+built-in and user-scope entries. Commands and skills defined inside a project directory are served
+separately by the `providers.getProjectCommands` RPC, which routes through
+`ProviderRegistry.getProjectCommands` to the optional `ProviderInstance.projectCommands` hook.
+Claude implements the hook as a filesystem scan (`Drivers/ClaudeCommands.ts`,
+`Drivers/ClaudeSkills.ts`); drivers that have not implemented the hook omit it and the RPC resolves
+empty. Codex is the known follow-up: its app-server exposes repo-scope skills via
+`skills/list { cwds }`, but T3 only queries it with the server's own cwd today, so those stay
+snapshot-only. Clients layer the result over the snapshot lists with
+`mergeProviderSlashCommands` / `mergeProviderSkills` from
+`@t3tools/client-runtime/providerSkills`, project entries winning on name collisions.
+
 ## How provider work is requested
 
 Clients never call a provider directly. They dispatch orchestration commands over the RPC method

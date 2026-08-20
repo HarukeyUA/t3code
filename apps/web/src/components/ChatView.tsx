@@ -3,6 +3,7 @@ import {
   type ChatFileAttachment,
   DEFAULT_MODEL,
   defaultInstanceIdForDriver,
+  isProviderAvailable,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -259,6 +260,8 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
+import { useProviderProjectCommands } from "../state/queries";
+import { mergeProviderSkills } from "@t3tools/client-runtime/providerSkills";
 import {
   environmentServerConfigsAtom,
   primaryServerAvailableEditorsAtom,
@@ -2891,6 +2894,29 @@ function ChatViewContent(props: ChatViewProps) {
     resumeCompactionPermanentlyDismissed,
     setResumeCompactionPermanentlyDismissed,
   ]);
+  // Workspace-scoped skills for inline `$skill` decoration in the timeline.
+  // Gated to selectable instances so this resolves the same instance — and
+  // therefore shares the same cached query — as the composer's stricter
+  // derivation in the common case; when the persisted instance is disabled
+  // or unavailable, timeline decoration simply skips project skills.
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId,
+    instanceId:
+      activeProviderStatus !== null &&
+      activeProviderStatus.enabled &&
+      isProviderAvailable(activeProviderStatus)
+        ? activeProviderStatus.instanceId
+        : null,
+    cwd: gitCwd,
+  });
+  const activeProviderSkills = useMemo(
+    () =>
+      mergeProviderSkills(
+        activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS,
+        providerProjectCommands.skills,
+      ),
+    [activeProviderStatus, providerProjectCommands.skills],
+  );
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -7144,7 +7170,7 @@ function ChatViewContent(props: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
-                skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                skills={activeProviderSkills}
                 anchorMessageId={timelineAnchorMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}

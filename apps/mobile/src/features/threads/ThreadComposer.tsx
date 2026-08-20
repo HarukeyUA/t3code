@@ -40,6 +40,11 @@ import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import {
+  mergeProviderSkills,
+  mergeProviderSlashCommands,
+} from "@t3tools/client-runtime/providerSkills";
+import { useProviderProjectCommands } from "../../state/queries";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
@@ -300,7 +305,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     environmentLabel: props.environmentLabel,
     threadSyncPhase: props.threadSyncPhase,
   });
-  const selectedProviderStatus = useMemo(() => {
+  const providerSnapshot = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
       props.serverConfig.providers.find(
@@ -308,6 +313,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId: props.environmentId,
+    instanceId: providerSnapshot?.instanceId ?? null,
+    cwd: props.selectedThread.worktreePath ?? props.projectCwd,
+  });
+  const selectedProviderStatus = useMemo(
+    () =>
+      providerSnapshot
+        ? {
+            ...providerSnapshot,
+            slashCommands: mergeProviderSlashCommands(
+              providerSnapshot.slashCommands,
+              providerProjectCommands.slashCommands,
+            ),
+            skills: mergeProviderSkills(providerSnapshot.skills, providerProjectCommands.skills),
+          }
+        : null,
+    [providerProjectCommands.skills, providerProjectCommands.slashCommands, providerSnapshot],
+  );
 
   const composerMenu = useComposerCommandMenu({
     draftMessage: props.draftMessage,
@@ -318,6 +343,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeDraftMessage: props.onChangeDraftMessage,
     onUpdateInteractionMode: props.onUpdateInteractionMode,
   });
+  const composerTriggerKind = composerMenu.trigger?.kind ?? null;
+  const refreshProjectCommands = providerProjectCommands.refresh;
+  useEffect(() => {
+    if (composerTriggerKind === "slash-command" || composerTriggerKind === "skill") {
+      refreshProjectCommands();
+    }
+  }, [composerTriggerKind, refreshProjectCommands]);
   const { onSendMessage } = props;
 
   const handleSend = useCallback(async () => {

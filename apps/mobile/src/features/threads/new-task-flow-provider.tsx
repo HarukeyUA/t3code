@@ -54,7 +54,11 @@ import {
   useComposerDraft,
   useStickyComposerModelSelection,
 } from "../../state/use-composer-drafts";
-import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
+import {
+  useDebouncedValue,
+  usePaginatedBranches,
+  useProviderProjectCommands,
+} from "../../state/queries";
 import { vcsEnvironment } from "../../state/vcs";
 import {
   flattenQueuedThreadMessages,
@@ -73,6 +77,7 @@ import {
 } from "../../state/use-remote-environment-registry";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { mergeProviderSkills } from "@t3tools/client-runtime/providerSkills";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -459,12 +464,27 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
-  const selectedProviderStatus = useMemo(
+  const providerSnapshot = useMemo(
     () =>
       selectedEnvironmentServerConfig?.providers.find(
         (provider) => provider.instanceId === selectedModel?.instanceId,
       ) ?? null,
     [selectedEnvironmentServerConfig, selectedModel?.instanceId],
+  );
+  const providerProjectCommands = useProviderProjectCommands({
+    environmentId: selectedProject?.environmentId ?? null,
+    instanceId: providerSnapshot?.instanceId ?? null,
+    cwd: selectedProject?.workspaceRoot ?? null,
+  });
+  const selectedProviderStatus = useMemo(
+    () =>
+      providerSnapshot
+        ? {
+            ...providerSnapshot,
+            skills: mergeProviderSkills(providerSnapshot.skills, providerProjectCommands.skills),
+          }
+        : null,
+    [providerProjectCommands.skills, providerSnapshot],
   );
   const setSelectedModelKey = useCallback(
     // Options ride along in the same write: a follow-up setSelectedModelOptions
