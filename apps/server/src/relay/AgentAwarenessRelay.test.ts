@@ -44,6 +44,7 @@ import {
   RELAY_URL_SECRET,
   PUBLISH_AGENT_ACTIVITY_SECRET,
 } from "../cloud/config.ts";
+import { eventThreadId } from "../orchestration/domainEvents.ts";
 import * as AgentAwarenessRelay from "./AgentAwarenessRelay.ts";
 
 const state: RelayAgentActivityState = {
@@ -134,7 +135,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       occurredAt: now,
     } as unknown as OrchestrationEvent;
 
-    expect(AgentAwarenessRelay.eventThreadId(event)).toBe(threadId);
+    expect(eventThreadId(event)).toBe(threadId);
   });
 
   it("does not publish start intents, streaming content, or non-awareness activity events", () => {

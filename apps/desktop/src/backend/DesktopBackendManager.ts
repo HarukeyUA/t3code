@@ -537,7 +537,15 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
           version: 1,
           type: "setDiagnosticsDemand",
           enabled: false,
-        }),
+        }).pipe(
+          Effect.andThen(
+            handleControl({
+              version: 1,
+              type: "setAgentsWorking",
+              working: false,
+            }),
+          ),
+        ),
       ),
       Effect.forkScoped,
     );

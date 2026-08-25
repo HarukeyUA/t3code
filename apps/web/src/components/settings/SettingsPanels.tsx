@@ -541,6 +541,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit
         ? ["Quit confirmation"]
         : []),
+      ...(settings.keepAwakeWhileAgentsWork !== DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork
+        ? ["Keep awake while agents work"]
+        : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
@@ -557,6 +560,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
+      settings.keepAwakeWhileAgentsWork,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.confirmThreadUnpin,
@@ -676,6 +680,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
+      keepAwakeWhileAgentsWork: DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
@@ -2422,6 +2427,35 @@ export function GeneralSettingsPanel() {
                 checked={settings.confirmQuit}
                 onCheckedChange={(checked) => updateSettings({ confirmQuit: Boolean(checked) })}
                 aria-label="Hold to quit"
+              />
+            }
+          />
+        ) : null}
+
+        {isElectron ? (
+          <SettingsRow
+            {...searchableSetting("keep-awake-while-agents-work")}
+            description="Prevent the computer from sleeping while agents hosted by this app are working. The display still sleeps and locks."
+            resetAction={
+              settings.keepAwakeWhileAgentsWork !==
+              DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork ? (
+                <SettingResetButton
+                  label="keep awake"
+                  onClick={() =>
+                    updateSettings({
+                      keepAwakeWhileAgentsWork: DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.keepAwakeWhileAgentsWork}
+                onCheckedChange={(checked) =>
+                  updateSettings({ keepAwakeWhileAgentsWork: Boolean(checked) })
+                }
+                aria-label="Keep awake while agents work"
               />
             }
           />

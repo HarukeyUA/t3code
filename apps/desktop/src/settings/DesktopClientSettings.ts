@@ -7,8 +7,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Ref from "effect/Ref";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 
@@ -59,6 +62,16 @@ export class DesktopClientSettings extends Context.Service<
     readonly set: (
       settings: ClientSettings,
     ) => Effect.Effect<void, DesktopClientSettingsWriteError>;
+    /**
+     * Subscribe to settings written after this call, for main-process
+     * behaviors that react to toggles. The subscription is established when
+     * this effect runs — before the caller starts pulling — so writes landing
+     * between subscription and first pull are buffered, not dropped. The
+     * sliding buffer may shed notifications under bursts; that is safe
+     * because consumers re-read the current settings rather than relying on
+     * the emitted value.
+     */
+    readonly subscribeChanges: Effect.Effect<Stream.Stream<ClientSettings>, never, Scope.Scope>;
   }
 >()("@t3tools/desktop/settings/DesktopClientSettings") {}
 
@@ -151,6 +164,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
+  const changes = yield* PubSub.sliding<ClientSettings>(4);
 
   return DesktopClientSettings.of({
     get: readClientSettings(fileSystem, environment.clientSettingsPath).pipe(
@@ -176,8 +190,11 @@ export const make = Effect.gen(function* () {
             suffix,
           }),
         ),
+        Effect.andThen(PubSub.publish(changes, settings)),
+        Effect.asVoid,
         Effect.withSpan("desktop.clientSettings.set"),
       ),
+    subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
   });
 });
 
@@ -188,9 +205,15 @@ export const layerTest = (initialSettings: Option.Option<ClientSettings> = Optio
     DesktopClientSettings,
     Effect.gen(function* () {
       const settingsRef = yield* Ref.make(initialSettings);
+      const changes = yield* PubSub.sliding<ClientSettings>(4);
       return DesktopClientSettings.of({
         get: Ref.get(settingsRef),
-        set: (settings) => Ref.set(settingsRef, Option.some(settings)),
+        set: (settings) =>
+          Ref.set(settingsRef, Option.some(settings)).pipe(
+            Effect.andThen(PubSub.publish(changes, settings)),
+            Effect.asVoid,
+          ),
+        subscribeChanges: PubSub.subscribe(changes).pipe(Effect.map(Stream.fromSubscription)),
       });
     }),
   );

@@ -265,6 +265,17 @@ not oscillate the policy between constrained and unconstrained states. Decode
 errors, protocol mismatch, control-write failure, stream failure, stale input,
 and normal stream closure are represented explicitly.
 
+The control channel also carries `setAgentsWorking`, an edge-triggered flag
+that is not telemetry policy: `DesktopKeepAwakeReactor` watches session and
+turn lifecycle events and sends one message per flip of "any thread is
+working". On the Electron side `DesktopTelemetryPublisher` routes it to
+`DesktopKeepAwake`, which refcounts per backend source and holds a
+`powerSaveBlocker` (`prevent-app-suspension`) while any source reports work
+and the `keepAwakeWhileAgentsWork` client setting is on. Backend teardown
+removes the source, so a crashed server cannot leak a wake lock. WSL backends
+receive their bootstrap over stdin and get no telemetry or control fds, so a
+WSL-hosted server never reports work and keep-awake does not apply there.
+
 ### `ResourceTelemetry`
 
 Merges native and Electron data and owns public telemetry semantics.

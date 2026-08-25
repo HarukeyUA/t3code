@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -19,6 +20,7 @@ const clientSettings: ClientSettings = {
   browserDefaultAppearance: "dark",
   browserAutoShowFloatingPreview: false,
   confirmQuit: true,
+  keepAwakeWhileAgentsWork: true,
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
@@ -124,6 +126,18 @@ describe("DesktopClientSettings", () => {
             "settings",
           ),
         );
+      }),
+    ),
+  );
+
+  it.effect("publishes to subscribeChanges after a successful set", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        const changes = yield* settings.subscribeChanges;
+        yield* settings.set(clientSettings);
+        const received = yield* changes.pipe(Stream.take(1), Stream.runCollect);
+        assert.deepEqual([...received], [clientSettings]);
       }),
     ),
   );

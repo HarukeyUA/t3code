@@ -17,7 +17,30 @@ import type * as Electron from "electron";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
+import * as DesktopKeepAwake from "../power/DesktopKeepAwake.ts";
 import * as DesktopTelemetryPublisher from "./DesktopTelemetryPublisher.ts";
+
+const keepAwakeStubLayer = Layer.succeed(
+  DesktopKeepAwake.DesktopKeepAwake,
+  DesktopKeepAwake.DesktopKeepAwake.of({
+    setSourceWorking: () => Effect.void,
+    removeSource: () => Effect.void,
+    isHolding: Effect.succeed(false),
+  }),
+);
+
+const idlePowerMonitorLayer = Layer.succeed(
+  ElectronPowerMonitor.ElectronPowerMonitor,
+  ElectronPowerMonitor.ElectronPowerMonitor.of({
+    isOnBatteryPower: Effect.succeed(false),
+    getSystemIdleTime: Effect.succeed(0),
+    getSystemIdleState: () => Effect.succeed("active"),
+    getCurrentThermalState: Effect.succeed("nominal"),
+    onSimpleEvent: () => Effect.void,
+    onThermalStateChange: () => Effect.void,
+    onSpeedLimitChange: () => Effect.void,
+  }),
+);
 
 function makeElectronAppLayer(
   metrics: ReadonlyArray<Electron.ProcessMetric>,
@@ -71,7 +94,7 @@ describe("DesktopTelemetryPublisher", () => {
         }),
       );
       const layer = DesktopTelemetryPublisher.layer.pipe(
-        Layer.provide(Layer.mergeAll(makeElectronAppLayer([]), powerLayer)),
+        Layer.provide(Layer.mergeAll(makeElectronAppLayer([]), powerLayer, keepAwakeStubLayer)),
       );
       const scope = yield* Scope.make();
 
@@ -142,6 +165,7 @@ describe("DesktopTelemetryPublisher", () => {
               metricsReadCount += 1;
             }),
             powerLayer,
+            keepAwakeStubLayer,
           ),
         ),
       );
@@ -383,6 +407,47 @@ describe("DesktopTelemetryPublisher", () => {
         );
         assert.equal(concurrentEventSnapshot.power.locked, "true");
         assert.equal(concurrentEventSnapshot.power.thermalState, "critical");
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("routes keep-awake control messages and source removal per source", () =>
+    Effect.gen(function* () {
+      const workingCalls = yield* Ref.make<ReadonlyArray<readonly [string, boolean]>>([]);
+      const removedSources = yield* Ref.make<ReadonlyArray<string>>([]);
+      const recordingKeepAwakeLayer = Layer.succeed(
+        DesktopKeepAwake.DesktopKeepAwake,
+        DesktopKeepAwake.DesktopKeepAwake.of({
+          setSourceWorking: (sourceId, working) =>
+            Ref.update(workingCalls, (calls) => [...calls, [sourceId, working] as const]),
+          removeSource: (sourceId) =>
+            Ref.update(removedSources, (sources) => [...sources, sourceId]),
+          isHolding: Effect.succeed(false),
+        }),
+      );
+      const layer = DesktopTelemetryPublisher.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(makeElectronAppLayer([]), idlePowerMonitorLayer, recordingKeepAwakeLayer),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const publisher = yield* DesktopTelemetryPublisher.DesktopTelemetryPublisher;
+        yield* publisher.handleControlForSource("backend-a", {
+          version: 1,
+          type: "setAgentsWorking",
+          working: true,
+        });
+        yield* publisher.handleControlForSource("backend-b", {
+          version: 1,
+          type: "setAgentsWorking",
+          working: false,
+        });
+        yield* publisher.removeControlSource("backend-a");
+        assert.deepEqual(yield* Ref.get(workingCalls), [
+          ["backend-a", true],
+          ["backend-b", false],
+        ]);
+        assert.deepEqual(yield* Ref.get(removedSources), ["backend-a"]);
       }).pipe(Effect.provide(layer));
     }),
   );
