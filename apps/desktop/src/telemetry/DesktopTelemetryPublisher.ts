@@ -19,6 +19,7 @@ import * as Stream from "effect/Stream";
 
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
+import * as DesktopKeepAwake from "../power/DesktopKeepAwake.ts";
 
 const LIVE_SAMPLE_INTERVAL = Duration.seconds(1);
 const BATTERY_SAMPLE_INTERVAL = Duration.seconds(5);
@@ -136,6 +137,7 @@ function sampleInterval(
 export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const powerMonitor = yield* ElectronPowerMonitor.ElectronPowerMonitor;
+  const keepAwake = yield* DesktopKeepAwake.DesktopKeepAwake;
   yield* electronApp.whenReady;
 
   const initialPowerState: PowerState = {
@@ -324,6 +326,8 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
           active: Duration.millis(message.activeIntervalMs),
           idle: Duration.millis(message.idleIntervalMs),
         }).pipe(Effect.andThen(Queue.offer(sampleTriggers, undefined)), Effect.asVoid);
+      case "setAgentsWorking":
+        return keepAwake.setSourceWorking(sourceId, message.working);
     }
   };
   const removeControlSource: DesktopTelemetryPublisher["Service"]["removeControlSource"] = (
@@ -340,6 +344,7 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
           ? Effect.void
           : Queue.offer(sampleTriggers, undefined).pipe(Effect.asVoid),
       ),
+      Effect.andThen(keepAwake.removeSource(sourceId)),
     );
   const handleControl: DesktopTelemetryPublisher["Service"]["handleControl"] = (message) =>
     handleControlForSource("legacy", message);

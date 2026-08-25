@@ -60,6 +60,17 @@ If the copied link points directly at `http://192.168.x.y:3773`, open it from a 
 
 In the mobile app's **Add Environment** form, a numeric IP address without a scheme uses HTTP. Include `https://` explicitly when the backend is served over HTTPS.
 
+#### Keeping the Host Awake
+
+While any agent thread hosted by the desktop app is working, the app keeps the computer from
+going to sleep, so agents keep running and stay reachable from other devices behind a locked
+screen. This applies on battery power too. The display still sleeps and locks as usual, and
+closing a laptop lid still suspends the machine. Turn this off in **Settings** → **General** →
+**Keep awake while agents work**.
+
+Headless servers started from the CLI and agents running in a WSL backend follow the operating
+system's power settings instead.
+
 ### Tailscale Endpoints
 
 When the desktop app can detect Tailscale, it adds Tailnet endpoints to the reachable endpoint list.

@@ -83,6 +83,7 @@ import { VcsStatusBroadcaster } from "../src/vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../src/git/GitWorkflowService.ts";
 import * as VcsProcess from "../src/vcs/VcsProcess.ts";
 import * as AgentAwarenessRelay from "../src/relay/AgentAwarenessRelay.ts";
+import * as DesktopKeepAwakeReactor from "../src/background/DesktopKeepAwakeReactor.ts";
 
 const decodeCodexSettings = Schema.decodeEffect(CodexSettings);
 
@@ -380,6 +381,13 @@ export const makeOrchestrationIntegrationHarness = (
         Layer.succeed(AgentAwarenessRelay.AgentAwarenessRelay, {
           publishThread: () => Effect.void,
           start: () => Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(DesktopKeepAwakeReactor.DesktopKeepAwakeReactor, {
+          recomputeThread: () => Effect.void,
+          start: () => Effect.void,
+          drain: Effect.void,
         }),
       ),
     );

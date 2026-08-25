@@ -266,9 +266,20 @@ export const DesktopTelemetrySetHostPowerIntervals = Schema.Struct({
 export type DesktopTelemetrySetHostPowerIntervals =
   typeof DesktopTelemetrySetHostPowerIntervals.Type;
 
+// Edge-triggered: the server sends this only when "any thread is actively
+// working" flips. The desktop refcounts it per backend source and holds a
+// system sleep blocker while any source reports work (see keep-awake).
+export const DesktopTelemetrySetAgentsWorking = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("setAgentsWorking"),
+  working: Schema.Boolean,
+});
+export type DesktopTelemetrySetAgentsWorking = typeof DesktopTelemetrySetAgentsWorking.Type;
+
 export const DesktopTelemetryControlMessage = Schema.Union([
   DesktopTelemetrySetDiagnosticsDemand,
   DesktopTelemetrySetHostPowerIntervals,
+  DesktopTelemetrySetAgentsWorking,
 ]);
 export type DesktopTelemetryControlMessage = typeof DesktopTelemetryControlMessage.Type;
 

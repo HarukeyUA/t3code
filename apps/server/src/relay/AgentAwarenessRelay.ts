@@ -43,6 +43,7 @@ import {
 } from "../cloud/config.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "../cloud/environmentKeys.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { eventThreadId } from "../orchestration/domainEvents.ts";
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { forkParked } from "../serverActivation.ts";
@@ -54,17 +55,6 @@ export class AgentAwarenessRelay extends Context.Service<
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/relay/AgentAwarenessRelay") {}
-
-export function eventThreadId(event: OrchestrationEvent): ThreadId | null {
-  const payload = event.payload as { readonly threadId?: unknown };
-  if (typeof payload.threadId === "string") {
-    return payload.threadId as ThreadId;
-  }
-  if (event.aggregateKind === "thread" && typeof event.aggregateId === "string") {
-    return event.aggregateId as ThreadId;
-  }
-  return null;
-}
 
 export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boolean {
   switch (event.type) {
